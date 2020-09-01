@@ -1,7 +1,4 @@
 import ../lna
 
-var l1 = newLong(6)
-var l2 = newLong(256)
-
-echo l1
-echo l2
+var l1 = newLong(-786.6548)
+#echo l1
