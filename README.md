@@ -1,3 +1,3 @@
 # Long numbers algebra
 
-## Long arithmetic implemented in nim
+## Long arithmetic implemented in Nim
