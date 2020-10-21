@@ -21,7 +21,7 @@ proc newLong*(): Long =
 
 
 # Build a Long from an ordinary number
-proc newLong*(num: SomeNumber): Long =
+proc newLong*(num: SomeNumber): Long = # Numbers with more than three decimals are depricated
     result = newLong()
 
     if 0 > num :
@@ -31,12 +31,13 @@ proc newLong*(num: SomeNumber): Long =
         remainder: Rational[int]
         positive = abs float num
         rat256 = 256.toRational
+        rat10 = 10.toRational
         intPart = (floor positive).toRational
         tempDec = positive.toRational - intPart
         decPart : Rational[system.int]
 
     while (tempDec mod 1.toRational).toFloat > 0.0 :
-        tempDec *= 10
+        tempDec *= rat10
     decPart = tempDec
 
     while intPart.toInt > 255 :
@@ -72,17 +73,40 @@ proc clean*(num: var Long) =
         intCuts = 0
         decCuts = 0
 
-    for i in countup(0, num.intPart.len - 1):
-        if num.intPart[i] == 0: intCuts += 1
+    for index in countup(0, num.intPart.len - 1):
+        if num.intPart[index] == 0: intCuts += 1
         else: break
 
-    for i in 0..<intCuts: num.intPart.popfirst()
+    for index in 1..intCuts: num.intPart.popfirst()
 
-    for i in countdown(num.decPart.len - 1, 0):
-        if num.decPart[i] == 0: decCuts += 1
+    for index in countdown(num.decPart.len - 1, 0):
+        if num.decPart[index] == 0: decCuts += 1
         else: break
 
-    for i in 0..<decCuts: num.decPart.popLast()
+    for index in 1..decCuts: num.decPart.popLast()
+
+
+# Add a certain number of 0s at the begining and at the ending of a Long
+proc longen*(num: var Long, intAdds = 0, decAdds = 0) =
+    for index in 1..intAdds: num.intPart.addLast 0
+    for index in 1..decAdds: num.decPart.addFirst 0
+
+
+# Add as many 0s as necessary at the begining and the
+# ending of two Longs to make them have the same size
+proc fitNums*(num1, num2: var Long) =
+    var
+        n1i = 0
+        n2i = 0
+        n1d = 0
+        n2d = 0
+    if num1.intPart.len > num2.intPart.len: n2i = (num1.intPart.len - num2.intPart.len)
+    else: n1i = (num2.intPart.len - num1.intPart.len)
+    if num1.decPart.len > num2.decPart.len: n2d = (num1.decPart.len - num2.decPart.len)
+    else: n1d = (num2.decPart.len - num1.decPart.len)
+
+    num1.longen(n1i, n1d)
+    num2.longen(n2i, n2d)
 
 
 ####################  COMPARAISON OPERATIONS  ####################
@@ -123,11 +147,28 @@ func `==`*[N1, N2: SomeNumber | Long](num1: N1, num2: N2): bool =
     return n1 == n2
 
 
+#-----  -----  Unequality tests  -----  -----#
+
+
+# Test of unequality between two Longs
+func `!=`*(num1: Long, num2: Long): bool = not(num1 == num2)
+
+
+# Test of unequality between a Long and an ordinary number
+func `!=`*[N1, N2: SomeNumber | Long](num1: N1, num2: N2): bool =
+    var n1, n2: Long
+    when num1 is Long : n1 = num1
+    else : n1 = newLong(num1)
+    when num2 is Long : n2 = num2
+    else : n2 = newLong(num2)
+    return n1 != n2
+
+
 #-----  -----  Superiority tests  -----  -----#
 
 
 # Test of superiority between two Longs
-proc `>`*(num1: Long, num2: Long): bool =
+func `>`*(num1: Long, num2: Long): bool =
     var
         n1 = num1
         n2 = num2
@@ -135,28 +176,44 @@ proc `>`*(num1: Long, num2: Long): bool =
     n2.clean
 
     if (
-        (n1.intPart == toDeque [0u8])
-    ): return true
+        (n1.intPart == toDeque [0u8]) and
+        (n1.decPart == toDeque [0u8])
+    ): return false
 
     #We insure that the sign of n2 don't make it bigger than n1
     if ((n1.sign == Plus) and (n2.sign == Minus)) : return false
 
+    #We check if the sign of n1 make it bigger than n2
+    if ((n1.sign == Plus) and (n2.sign == Minus)) : return true
+
     # If the integer part of n2 is Longer than n1's, then n1 is necessarily smaller than n2
-    result = (n1.intPart.len >= n2.intPart.len)
+    if (n1.intPart.len < n2.intPart.len): return false
 
-    if result:
-        for index, digit in n1.intPart.pairs:
-            result = (digit == n2.intPart[index])
-            if not result: break
+    # If the integer part of n1 is Longer than n2's, then n2 is necessarily smaller than n1
+    if (n1.intPart.len > n2.intPart.len): return true
 
-    if result:
-        for index, digit in n1.decPart.pairs:
-            result = (digit == n2.decPart[index])
-            if not result: break
+    #The two numbers aren't null, they've the same sign, and their int parts have the same length
+    # It's now time to test the superiority digit by digit
+    for index, digit in n1.intPart.pairs:
+        if (digit > n2.intPart[index]): return true
+        if (n2.intPart[index] > digit): return false
+
+    #If the int parts are equal, then let's check which dec part is the biggest
+    var
+        n1IsShorter = (n1.decPart.len < n2.decPart.len)
+        n2IsShorter = (n1.decPart.len > n2.decPart.len)
+        shortest: int
+    if n1Isshorter: shortest = n1.decPart.len
+    else: shortest = n2.decPart.len
+    for index in 0..<shortest:
+        if (n1.decPart[index] > n2.decPart[index]): return true
+        if (n2.decPart[index] > n1.decPart[index]): return false
+    if n2IsShorter: return true
+    return false
 
 
 # Test of superiority between a Long and an ordinary number
-proc `>`*[N1, N2: SomeNumber | Long](num1: N1, num2: N2): bool =
+func `>`*[N1, N2: SomeNumber | Long](num1: N1, num2: N2): bool =
     var n1, n2: Long
     when num1 is Long : n1 = num1
     else : n1 = newLong(num1)
@@ -169,7 +226,7 @@ proc `>`*[N1, N2: SomeNumber | Long](num1: N1, num2: N2): bool =
 
 
 # Test of inferiority between two Longs
-func `<`*(num1: Long, num2: Long): bool = true
+func `<`*(num1: Long, num2: Long): bool = (not (num1 == num2)) and (not (num1 > num2))
 
 
 # Test of inferiority between a Long and an ordinary number
@@ -203,7 +260,7 @@ func `>=`*[N1, N2: SomeNumber | Long](num1: N1, num2: N2): bool =
 
 
 # Test of inferiority or equality between two Longs
-func `<=`*(num1: Long, num2: Long): bool = (num1 == num2) or (num1 < num2)
+func `<=`*(num1: Long, num2: Long): bool = not (num1 > num2)
 
 
 # Test of inferiority or equality between a Long and an ordinary number
@@ -223,7 +280,11 @@ func `<=`*[N1, N2: SomeNumber | Long](num1: N1, num2: N2): bool =
 
 
 # Addition of two Longs
-func `+`*(num1: Long, num2: Long): Long = _""
+func `+`*(num1: Long, num2: Long): Long =
+    var
+        n1 = num1
+        n2 = num2
+    fitNums(n1, n2)
 
 
 # Addition of a Long and an ordinary number
